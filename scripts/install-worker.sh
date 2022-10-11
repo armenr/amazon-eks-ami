@@ -66,7 +66,11 @@ sudo yum install -y \
     socat \
     unzip \
     wget \
-    yum-plugin-versionlock
+    yum-plugin-versionlock \
+    yum-utils
+
+# Remove any old kernel versions. `--count=1` here means "only leave 1 kernel version installed"
+sudo package-cleanup --oldkernels --count=1 -y
 
 # Remove the ec2-net-utils package, if it's installed. This package interferes with the route setup on the instance.
 if yum list installed | grep ec2-net-utils; then sudo yum remove ec2-net-utils -y -q; fi
@@ -111,12 +115,12 @@ sudo mv $TEMPLATE_DIR/iptables-restore.service /etc/eks/iptables-restore.service
 ### Docker #####################################################################
 ################################################################################
 
-sudo yum install -y yum-utils device-mapper-persistent-data lvm2
+sudo yum install -y device-mapper-persistent-data lvm2
 
 INSTALL_DOCKER="${INSTALL_DOCKER:-true}"
 if [[ "$INSTALL_DOCKER" == "true" ]]; then
     sudo amazon-linux-extras enable docker
-    sudo groupadd -fog 1950 docker
+    sudo groupadd -og 1950 docker
     sudo useradd --gid $(getent group docker | cut -d: -f3) docker
 
     # install runc and lock version
@@ -155,7 +159,7 @@ else
     sudo mv $TEMPLATE_DIR/containerd-config.toml /etc/eks/containerd/containerd-config.toml
 fi
 
-if [[ $KUBERNETES_VERSION == "1.22"* ]]; then
+if [[ ! $KUBERNETES_VERSION =~ "1.19"* && ! $KUBERNETES_VERSION =~ "1.20"* && ! $KUBERNETES_VERSION =~ "1.21"* ]]; then
     # enable CredentialProviders features in kubelet-containerd service file
     IMAGE_CREDENTIAL_PROVIDER_FLAGS='\\\n    --image-credential-provider-config /etc/eks/ecr-credential-provider/ecr-credential-provider-config \\\n   --image-credential-provider-bin-dir /etc/eks/ecr-credential-provider'
     sudo sed -i s,"aws","aws $IMAGE_CREDENTIAL_PROVIDER_FLAGS", $TEMPLATE_DIR/kubelet-containerd.service
@@ -268,7 +272,7 @@ if [[ $KUBERNETES_VERSION == "1.20"* ]]; then
     echo $KUBELET_CONFIG_WITH_CSI_SERVICE_ACCOUNT_TOKEN_ENABLED > $TEMPLATE_DIR/kubelet-config.json
 fi
 
-if [[ $KUBERNETES_VERSION == "1.22"* ]]; then
+if [[ ! $KUBERNETES_VERSION =~ "1.19"* && ! $KUBERNETES_VERSION =~ "1.20"* && ! $KUBERNETES_VERSION =~ "1.21"* ]]; then
     # enable CredentialProviders feature flags in kubelet service file
     IMAGE_CREDENTIAL_PROVIDER_FLAGS='\\\n    --image-credential-provider-config /etc/eks/ecr-credential-provider/ecr-credential-provider-config \\\n    --image-credential-provider-bin-dir /etc/eks/ecr-credential-provider'
     sudo sed -i s,"aws","aws $IMAGE_CREDENTIAL_PROVIDER_FLAGS", $TEMPLATE_DIR/kubelet.service
@@ -307,7 +311,7 @@ fi
 ################################################################################
 ### ECR CREDENTIAL PROVIDER ####################################################
 ################################################################################
-if [[ $KUBERNETES_VERSION == "1.22"* ]]; then
+if [[ ! $KUBERNETES_VERSION =~ "1.19"* && ! $KUBERNETES_VERSION =~ "1.20"* && ! $KUBERNETES_VERSION =~ "1.21"* ]]; then
     ECR_BINARY="ecr-credential-provider"
     if [[ -n "$AWS_ACCESS_KEY_ID" ]]; then
         echo "AWS cli present - using it to copy ecr-credential-provider binaries from s3."
@@ -364,36 +368,7 @@ echo vm.max_map_count=524288 | sudo tee -a /etc/sysctl.conf
 
 
 ################################################################################
-### Cleanup ####################################################################
+### adding log-collector-script ###############################################
 ################################################################################
-
-CLEANUP_IMAGE="${CLEANUP_IMAGE:-true}"
-if [[ "$CLEANUP_IMAGE" == "true" ]]; then
-    # Clean up yum caches to reduce the image size
-    sudo yum clean all
-    sudo rm -rf \
-        $TEMPLATE_DIR  \
-        /var/cache/yum
-
-    # Clean up files to reduce confusion during debug
-    sudo rm -rf \
-        /etc/hostname \
-        /etc/machine-id \
-        /etc/resolv.conf \
-        /etc/ssh/ssh_host* \
-        /home/ec2-user/.ssh/authorized_keys \
-        /root/.ssh/authorized_keys \
-        /var/lib/cloud/data \
-        /var/lib/cloud/instance \
-        /var/lib/cloud/instances \
-        /var/lib/cloud/sem \
-        /var/lib/dhclient/* \
-        /var/lib/dhcp/dhclient.* \
-        /var/lib/yum/history \
-        /var/log/cloud-init-output.log \
-        /var/log/cloud-init.log \
-        /var/log/secure \
-        /var/log/wtmp
-fi
-
-sudo touch /etc/machine-id
+sudo mkdir -p /etc/eks/log-collector-script/
+sudo cp $TEMPLATE_DIR/log-collector-script/eks-log-collector.sh /etc/eks/log-collector-script/
