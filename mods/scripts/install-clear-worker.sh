@@ -59,7 +59,7 @@ sudo mv "$TEMPLATE_DIR"/bin/* /usr/bin/
 ################################################################################
 
 # Wait for system to settle
-sleep 45
+sleep 60
 
 # Update the OS to begin with to catch up to the latest packages.
 swupd update
