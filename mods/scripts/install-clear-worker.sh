@@ -195,7 +195,7 @@ else
     mv "$TEMPLATE_DIR"/containerd-config.toml /etc/eks/containerd/containerd-config.toml
 fi
 
-if [[ $KUBERNETES_VERSION == "1.22"* ]]; then
+if [[ ! $KUBERNETES_VERSION =~ "1.19"* && ! $KUBERNETES_VERSION =~ "1.20"* && ! $KUBERNETES_VERSION =~ "1.21"* ]]; then
     # enable CredentialProviders features in kubelet-containerd service file
     IMAGE_CREDENTIAL_PROVIDER_FLAGS='\\\n    --image-credential-provider-config /etc/eks/ecr-credential-provider/ecr-credential-provider-config \\\n   --image-credential-provider-bin-dir /etc/eks/ecr-credential-provider'
     sed -i s,"aws","aws $IMAGE_CREDENTIAL_PROVIDER_FLAGS", "$TEMPLATE_DIR"/kubelet-containerd.service
@@ -262,7 +262,6 @@ BINARIES=(
     kubelet
     aws-iam-authenticator
 )
-
 for binary in "${BINARIES[@]}" ; do
     if [[ -n "$AWS_ACCESS_KEY_ID" ]]; then
         echo "AWS cli present - using it to copy binaries from s3."
@@ -299,7 +298,6 @@ else
     fi
     sha256sum -c "${CNI_PLUGIN_FILENAME}.tgz.sha256"
 fi
-
 tar -xvf "${CNI_PLUGIN_FILENAME}.tgz" -C /opt/cni/bin
 rm "${CNI_PLUGIN_FILENAME}.tgz"
 
@@ -317,7 +315,7 @@ if [[ $KUBERNETES_VERSION == "1.20"* ]]; then
     echo "$KUBELET_CONFIG_WITH_CSI_SERVICE_ACCOUNT_TOKEN_ENABLED" > "$TEMPLATE_DIR"/kubelet-config.json
 fi
 
-if [[ $KUBERNETES_VERSION == "1.22"* ]]; then
+if [[ ! $KUBERNETES_VERSION =~ "1.19"* && ! $KUBERNETES_VERSION =~ "1.20"* && ! $KUBERNETES_VERSION =~ "1.21"* ]]; then
     # enable CredentialProviders feature flags in kubelet service file
     IMAGE_CREDENTIAL_PROVIDER_FLAGS='\\\n    --image-credential-provider-config /etc/eks/ecr-credential-provider/ecr-credential-provider-config \\\n    --image-credential-provider-bin-dir /etc/eks/ecr-credential-provider'
     sudo sed -i s,"aws","aws $IMAGE_CREDENTIAL_PROVIDER_FLAGS", "$TEMPLATE_DIR"/kubelet.service
@@ -332,7 +330,6 @@ mv "$TEMPLATE_DIR"/kubelet-config.json /etc/kubernetes/kubelet/kubelet-config.js
 chown root:root /etc/kubernetes/kubelet/kubelet-config.json
 
 sudo systemctl daemon-reload
-
 # Disable the kubelet until the proper dropins have been configured
 sudo systemctl disable kubelet
 
@@ -356,7 +353,7 @@ fi
 ################################################################################
 ### ECR CREDENTIAL PROVIDER ####################################################
 ################################################################################
-if [[ $KUBERNETES_VERSION == "1.22"* ]]; then
+if [[ ! $KUBERNETES_VERSION =~ "1.19"* && ! $KUBERNETES_VERSION =~ "1.20"* && ! $KUBERNETES_VERSION =~ "1.21"* ]]; then
     ECR_BINARY="ecr-credential-provider"
     if [[ -n "$AWS_ACCESS_KEY_ID" ]]; then
         echo "AWS cli present - using it to copy ecr-credential-provider binaries from s3."
@@ -365,7 +362,6 @@ if [[ $KUBERNETES_VERSION == "1.22"* ]]; then
         echo "AWS cli missing - using wget to fetch ecr-credential-provider binaries from s3. Note: This won't work for private bucket."
         wget "$S3_URL_BASE/$ECR_BINARY"
     fi
-
     chmod +x $ECR_BINARY
     mkdir -p /etc/eks/ecr-credential-provider
     mv $ECR_BINARY /etc/eks/ecr-credential-provider
@@ -379,15 +375,13 @@ fi
 ### AMI Metadata ###############################################################
 ################################################################################
 
-BASE_AMI_ID=$(curl -s  http://169.254.169.254/latest/meta-data/ami-id)
-
+BASE_AMI_ID=$(imds /latest/meta-data/ami-id)
 cat <<EOF > /tmp/release
 BASE_AMI_ID="$BASE_AMI_ID"
 BUILD_TIME="$(date)"
 BUILD_KERNEL="$(uname -r)"
 ARCH="$(uname -m)"
 EOF
-
 mv /tmp/release /etc/eks/release
 chown -R root:root /etc/eks
 
@@ -412,16 +406,23 @@ echo fs.inotify.max_user_instances=8192 | sudo tee -a /etc/sysctl.conf
 echo vm.max_map_count=524288 | sudo tee -a /etc/sysctl.conf
 
 ################################################################################
+### adding log-collector-script ###############################################
+################################################################################
+mkdir -p /etc/eks/log-collector-script/
+cp $TEMPLATE_DIR/log-collector-script/eks-log-collector.sh /etc/eks/log-collector-script/
+
+################################################################################
 ### Cleanup ####################################################################
 ################################################################################
-
-systemctl enable kubelet
 
 CLEANUP_IMAGE="${CLEANUP_IMAGE:-true}"
 if [[ "$CLEANUP_IMAGE" == "true" ]]; then
     # Clean up yum caches to reduce the image size
     sudo rm -rf \
         "$TEMPLATE_DIR"
+
+    # swupd 3rd-party clean
+    # swupd clean --all
 
     # Clean up files to reduce confusion during debug
     rm -rf \
