@@ -7,6 +7,7 @@ IFS=$'\n\t'
 
 TEMPLATE_DIR=${TEMPLATE_DIR:-/tmp/worker}
 SERVICE_UNIT_DIR=${SERVICE_UNIT_DIR:-/tmp/services}
+MODS_BIN_DIR=${MODS_BIN_DIR:-/tmp/mods-bin}
 
 ################################################################################
 ### Validate Required Arguments ################################################
@@ -117,11 +118,11 @@ echo "127.0.0.1 localhost $(hostname)" | sudo tee --append /etc/hosts
 ###  MetaData Genius  ##########################################################
 ################################################################################
 
-sudo cp "$TEMPLATE_DIR"/ec2-metadata /usr/bin/ec2-metadata
+sudo cp "$MODS_BIN_DIR"/ec2-metadata /usr/bin/ec2-metadata
 sudo chown root:root /usr/bin/ec2-metadata
 sudo chmod +x /usr/bin/ec2-metadata
 
-sudo cp "$TEMPLATE_DIR"/fetch-userdata /usr/bin/fetch-userdata
+sudo cp "$MODS_BIN_DIR"/fetch-userdata /usr/bin/fetch-userdata
 sudo chown root:root /usr/bin/fetch-userdata
 sudo chmod +x /usr/bin/fetch-userdata
 
