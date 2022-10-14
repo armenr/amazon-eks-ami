@@ -6,6 +6,7 @@ set -o errexit
 IFS=$'\n\t'
 
 TEMPLATE_DIR=${TEMPLATE_DIR:-/tmp/worker}
+SERVICE_UNIT_DIR=${SERVICE_UNIT_DIR:-/tmp/services}
 
 ################################################################################
 ### Validate Required Arguments ################################################
@@ -70,38 +71,68 @@ swupd autoupdate --disable --no-progress
 
 # Install necessary packages
 swupd bundle-add \
-    cloud-api \
-    cloud-control \
-    cpio \
-    curl \
-    devpkg-libnetfilter_conntrack \
-    devpkg-LVM2 \
-    iperf \
-    ipvsadm \
-    jq \
-    kernel-aws-dkms \
-    logrotate \
-    network-basic \
-    nfs-utils \
-    os-cloudguest-aws \
-    package-utils \
-    parted \
-    time-server-basic \
-    unzip
+  c-basic \
+  c-basic-legacy \
+  cloud-api \
+  cloud-control \
+  cloud-native-basic \
+  cpio \
+  curl \
+  devpkg-expat \
+  devpkg-libnetfilter_conntrack \
+  devpkg-LVM2 \
+  devpkg-openssl \
+  devpkg-systemd \
+  flatpak \
+  go-basic-dev \
+  iperf \
+  ipvsadm \
+  jq \
+  kernel-aws-dkms \
+  logrotate \
+  network-basic \
+  nfs-utils \
+  openssl \
+  os-cloudguest-aws \
+  os-core \
+  os-core-search \
+  package-utils \
+  parted \
+  python-extras \
+  runtime-libs-boost \
+  rust-basic \
+  socat \
+  service-os-dev \
+  sysadmin-basic \
+  time-server-basic \
+  unzip \
+  wget \
+  yq
 
 # systemctl mask $(sed -n -e 's#^/var/\([0-9a-z]*\).*#var-\1.swap#p' /proc/swaps) 2>/dev/null
 swapoff -a
-echo "127.0.0.1 localhost `hostname`" | sudo tee --append /etc/hosts
+echo "127.0.0.1 localhost $(hostname)" | sudo tee --append /etc/hosts
 
 ################################################################################
-### DNF/YUM Repos ##############################################################
+###  MetaData Genius  ##########################################################
 ################################################################################
 
-# kubelet uses journald which has built-in rotation and capped size.
-# See man 5 journald.conf
+sudo cp "$TEMPLATE_DIR"/ec2-metadata /usr/bin/ec2-metadata
+sudo chown root:root /usr/bin/ec2-metadata
+sudo chmod +x /usr/bin/ec2-metadata
 
-cp $TEMPLATE_DIR/dnf.conf /etc/dnf/dnf.conf
-chown root:root /etc/dnf/dnf.conf
+sudo cp "$TEMPLATE_DIR"/fetch-userdata /usr/bin/fetch-userdata
+sudo chown root:root /usr/bin/fetch-userdata
+sudo chmod +x /usr/bin/fetch-userdata
+
+sudo cp "$SERVICE_UNIT_DIR"/fetch-userdata.service /usr/lib/systemd/system/fetch-userdata.service
+sudo chown root:root /usr/lib/systemd/system/fetch-userdata.service
+
+sudo cp "$SERVICE_UNIT_DIR"/run-ec2-userdata.service /usr/lib/systemd/system/run-ec2-userdata.service
+sudo chown root:root /usr/lib/systemd/system/run-ec2-userdata.service
+
+systemctl enable fetch-userdata.service
+systemctl enable run-userdata.service
 
 ################################################################################
 ### AWS CLI   ##################################################################
@@ -117,34 +148,8 @@ curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip
 unzip awscliv2.zip
 ./aws/install --bin-dir /usr/bin --install-dir /usr/local/aws-cli --update
 
-################################################################################
-### Hacked Packages ############################################################
-################################################################################
-
-RPM_DEPENDENCIES=(
-    ec2-instance-connect
-    amazon-ssm-agent
-    aws-cfn-bootstrap
-    device-mapper-persistent-data
-)
-
-for dependency in ${RPM_DEPENDENCIES[*]} ; do
-
-    echo "Fetching $dependency from AL2 yum repos..."
-
-    dnf --setopt=install_weak_deps=False \
-        --assumeyes \
-        --best \
-        --downloadonly \
-        --downloaddir=/tmp \
-            install "$dependency"
-
-    RPM_FILENAME=$(ls /tmp | grep "$dependency-")
-    echo "yum provides $RPM_FILENAME"
-    echo "installing..."
-
-    rpm -ivh --nodeps /tmp/"$RPM_FILENAME"
-done
+# Install the shit
+pip3 install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz
 
 systemctl enable amazon-ssm-agent
 systemctl start amazon-ssm-agent
@@ -153,12 +158,12 @@ systemctl start amazon-ssm-agent
 ### Time #######################################################################
 ################################################################################
 
+# Touch chronyd config file
+touch /etc/chrony.conf
+
 # Make sure Amazon Time Sync Service starts on boot.
 systemctl enable chronyd
 systemctl start chronyd
-
-# Touch chronyd config file
-touch /etc/chrony.conf
 
 # Make sure that chronyd syncs RTC clock to the kernel.
 cat <<EOF | sudo tee -a /etc/chrony.conf
@@ -178,14 +183,14 @@ fi
 ### iptables ###################################################################
 ################################################################################
 mkdir -p /etc/eks
-mv $TEMPLATE_DIR/iptables-restore.service /etc/eks/iptables-restore.service
+mv "$TEMPLATE_DIR"/iptables-restore.service /etc/eks/iptables-restore.service
 
 ################################################################################
 ### Docker #####################################################################
 ################################################################################
 
 mkdir -p /etc/docker
-mv $TEMPLATE_DIR/docker-daemon.json /etc/docker/daemon.json
+mv "$TEMPLATE_DIR"/docker-daemon.json /etc/docker/daemon.json
 chown root:root /etc/docker/daemon.json
 
 # Enable docker daemon to start on boot.
@@ -201,18 +206,18 @@ if [ -f "/etc/eks/containerd/containerd-config.toml" ]; then
     ## this means we are building a gpu ami and have already placed a containerd configuration file in /etc/eks
     echo "containerd config is already present"
 else
-    mv $TEMPLATE_DIR/containerd-config.toml /etc/eks/containerd/containerd-config.toml
+    mv "$TEMPLATE_DIR"/containerd-config.toml /etc/eks/containerd/containerd-config.toml
 fi
 
 if [[ $KUBERNETES_VERSION == "1.22"* ]]; then
     # enable CredentialProviders features in kubelet-containerd service file
     IMAGE_CREDENTIAL_PROVIDER_FLAGS='\\\n    --image-credential-provider-config /etc/eks/ecr-credential-provider/ecr-credential-provider-config \\\n   --image-credential-provider-bin-dir /etc/eks/ecr-credential-provider'
-    sed -i s,"aws","aws $IMAGE_CREDENTIAL_PROVIDER_FLAGS", $TEMPLATE_DIR/kubelet-containerd.service
+    sed -i s,"aws","aws $IMAGE_CREDENTIAL_PROVIDER_FLAGS", "$TEMPLATE_DIR"/kubelet-containerd.service
 fi
 
-mv $TEMPLATE_DIR/kubelet-containerd.service /etc/eks/containerd/kubelet-containerd.service
-mv $TEMPLATE_DIR/sandbox-image.service /etc/eks/containerd/sandbox-image.service
-mv $TEMPLATE_DIR/pull-sandbox-image.sh /etc/eks/containerd/pull-sandbox-image.sh
+mv "$TEMPLATE_DIR"/kubelet-containerd.service /etc/eks/containerd/kubelet-containerd.service
+mv "$TEMPLATE_DIR"/sandbox-image.service /etc/eks/containerd/sandbox-image.service
+mv "$TEMPLATE_DIR"/pull-sandbox-image.sh /etc/eks/containerd/pull-sandbox-image.sh
 chmod +x /etc/eks/containerd/pull-sandbox-image.sh
 
 mkdir -p /etc/modules-load.d/
@@ -240,8 +245,8 @@ EOF
 # See man 5 journald.conf
 
 mkdir -p /etc/logrotate.d/
-mv $TEMPLATE_DIR/logrotate-kube-proxy /etc/logrotate.d/kube-proxy
-mv $TEMPLATE_DIR/logrotate.conf /etc/logrotate.conf
+mv "$TEMPLATE_DIR"/logrotate-kube-proxy /etc/logrotate.d/kube-proxy
+mv "$TEMPLATE_DIR"/logrotate.conf /etc/logrotate.conf
 chown root:root /etc/logrotate.d/kube-proxy
 chown root:root /etc/logrotate.conf
 # mkdir -p /var/log/journal
@@ -272,19 +277,19 @@ BINARIES=(
     aws-iam-authenticator
 )
 
-for binary in ${BINARIES[*]} ; do
+for binary in "${BINARIES[@]}" ; do
     if [[ -n "$AWS_ACCESS_KEY_ID" ]]; then
         echo "AWS cli present - using it to copy binaries from s3."
-        aws s3 cp --region $BINARY_BUCKET_REGION $S3_PATH/$binary .
-        aws s3 cp --region $BINARY_BUCKET_REGION $S3_PATH/$binary.sha256 .
+        aws s3 cp --region "$BINARY_BUCKET_REGION" "$S3_PATH"/"$binary" .
+        aws s3 cp --region "$BINARY_BUCKET_REGION" "$S3_PATH"/"$binary".sha256 .
     else
         echo "AWS cli missing - using wget to fetch binaries from s3. Note: This won't work for private bucket."
-        sudo wget $S3_URL_BASE/$binary
-        sudo wget $S3_URL_BASE/$binary.sha256
+        sudo wget "$S3_URL_BASE"/"$binary"
+        sudo wget "$S3_URL_BASE"/"$binary".sha256
     fi
-    sudo sha256sum -c $binary.sha256
-    sudo chmod +x $binary
-    sudo mv $binary /usr/bin/
+    sudo sha256sum -c "$binary".sha256
+    sudo chmod +x "$binary"
+    sudo mv "$binary" /usr/bin/
 done
 
 # Since CNI 0.7.0, all releases are done in the plugins repo.
@@ -299,8 +304,8 @@ if [ "$PULL_CNI_FROM_GITHUB" = "true" ]; then
 else
     if [[ -n "$AWS_ACCESS_KEY_ID" ]]; then
         echo "AWS cli present - using it to copy binaries from s3."
-        aws s3 cp --region $BINARY_BUCKET_REGION $S3_PATH/${CNI_PLUGIN_FILENAME}.tgz .
-        aws s3 cp --region $BINARY_BUCKET_REGION $S3_PATH/${CNI_PLUGIN_FILENAME}.tgz.sha256 .
+        aws s3 cp --region "$BINARY_BUCKET_REGION" "$S3_PATH"/"${CNI_PLUGIN_FILENAME}".tgz .
+        aws s3 cp --region "$BINARY_BUCKET_REGION" "$S3_PATH"/"${CNI_PLUGIN_FILENAME}".tgz.sha256 .
     else
         echo "AWS cli missing - using wget to fetch cni binaries from s3. Note: This won't work for private bucket."
         wget "$S3_URL_BASE/${CNI_PLUGIN_FILENAME}.tgz"
@@ -316,28 +321,28 @@ rm ./*.sha256
 
 mkdir -p /etc/kubernetes/kubelet
 mkdir -p /etc/systemd/system/kubelet.service.d
-mv $TEMPLATE_DIR/kubelet-kubeconfig /var/lib/kubelet/kubeconfig
+mv "$TEMPLATE_DIR"/kubelet-kubeconfig /var/lib/kubelet/kubeconfig
 chown root:root /var/lib/kubelet/kubeconfig
 
 # Inject CSIServiceAccountToken feature gate to kubelet config if kubernetes version starts with 1.20.
 # This is only injected for 1.20 since CSIServiceAccountToken will be moved to beta starting 1.21.
 if [[ $KUBERNETES_VERSION == "1.20"* ]]; then
-    KUBELET_CONFIG_WITH_CSI_SERVICE_ACCOUNT_TOKEN_ENABLED=$(cat $TEMPLATE_DIR/kubelet-config.json | jq '.featureGates += {CSIServiceAccountToken: true}')
-    echo $KUBELET_CONFIG_WITH_CSI_SERVICE_ACCOUNT_TOKEN_ENABLED > $TEMPLATE_DIR/kubelet-config.json
+    KUBELET_CONFIG_WITH_CSI_SERVICE_ACCOUNT_TOKEN_ENABLED=$(cat "$TEMPLATE_DIR"/kubelet-config.json | jq '.featureGates += {CSIServiceAccountToken: true}')
+    echo "$KUBELET_CONFIG_WITH_CSI_SERVICE_ACCOUNT_TOKEN_ENABLED" > "$TEMPLATE_DIR"/kubelet-config.json
 fi
 
 if [[ $KUBERNETES_VERSION == "1.22"* ]]; then
     # enable CredentialProviders feature flags in kubelet service file
     IMAGE_CREDENTIAL_PROVIDER_FLAGS='\\\n    --image-credential-provider-config /etc/eks/ecr-credential-provider/ecr-credential-provider-config \\\n    --image-credential-provider-bin-dir /etc/eks/ecr-credential-provider'
-    sudo sed -i s,"aws","aws $IMAGE_CREDENTIAL_PROVIDER_FLAGS", $TEMPLATE_DIR/kubelet.service
+    sudo sed -i s,"aws","aws $IMAGE_CREDENTIAL_PROVIDER_FLAGS", "$TEMPLATE_DIR"/kubelet.service
     # enable KubeletCredentialProviders features in kubelet configuration
-    KUBELET_CREDENTIAL_PROVIDERS_FEATURES=$(cat $TEMPLATE_DIR/kubelet-config.json | jq '.featureGates += {KubeletCredentialProviders: true}')
+    KUBELET_CREDENTIAL_PROVIDERS_FEATURES=$(cat "$TEMPLATE_DIR"/kubelet-config.json | jq '.featureGates += {KubeletCredentialProviders: true}')
     printf "%s" "$KUBELET_CREDENTIAL_PROVIDERS_FEATURES" > "$TEMPLATE_DIR/kubelet-config.json"
 fi
 
-mv $TEMPLATE_DIR/kubelet.service /etc/systemd/system/kubelet.service
+mv "$TEMPLATE_DIR"/kubelet.service /etc/systemd/system/kubelet.service
 chown root:root /etc/systemd/system/kubelet.service
-mv $TEMPLATE_DIR/kubelet-config.json /etc/kubernetes/kubelet/kubelet-config.json
+mv "$TEMPLATE_DIR"/kubelet-config.json /etc/kubernetes/kubelet/kubelet-config.json
 chown root:root /etc/kubernetes/kubelet/kubelet-config.json
 
 sudo systemctl daemon-reload
@@ -345,24 +350,22 @@ sudo systemctl daemon-reload
 # Disable the kubelet until the proper dropins have been configured
 sudo systemctl disable kubelet
 
-
 ################################################################################
 ### EKS ########################################################################
 ################################################################################
 
 mkdir -p /etc/eks
-mv $TEMPLATE_DIR/eni-max-pods.txt /etc/eks/eni-max-pods.txt
-mv $TEMPLATE_DIR/bootstrap.sh /etc/eks/bootstrap.sh
+mv "$TEMPLATE_DIR"/eni-max-pods.txt /etc/eks/eni-max-pods.txt
+mv "$TEMPLATE_DIR"/bootstrap.sh /etc/eks/bootstrap.sh
 chmod +x /etc/eks/bootstrap.sh
-mv $TEMPLATE_DIR/max-pods-calculator.sh /etc/eks/max-pods-calculator.sh
+mv "$TEMPLATE_DIR"/max-pods-calculator.sh /etc/eks/max-pods-calculator.sh
 chmod +x /etc/eks/max-pods-calculator.sh
 
 SONOBUOY_E2E_REGISTRY="${SONOBUOY_E2E_REGISTRY:-}"
 if [[ -n "$SONOBUOY_E2E_REGISTRY" ]]; then
-    mv $TEMPLATE_DIR/sonobuoy-e2e-registry-config /etc/eks/sonobuoy-e2e-registry-config
-    sed -i s,SONOBUOY_E2E_REGISTRY,$SONOBUOY_E2E_REGISTRY,g /etc/eks/sonobuoy-e2e-registry-config
+    mv "$TEMPLATE_DIR"/sonobuoy-e2e-registry-config /etc/eks/sonobuoy-e2e-registry-config
+    sed -i s,SONOBUOY_E2E_REGISTRY,"$SONOBUOY_E2E_REGISTRY",g /etc/eks/sonobuoy-e2e-registry-config
 fi
-
 
 ################################################################################
 ### ECR CREDENTIAL PROVIDER ####################################################
@@ -371,7 +374,7 @@ if [[ $KUBERNETES_VERSION == "1.22"* ]]; then
     ECR_BINARY="ecr-credential-provider"
     if [[ -n "$AWS_ACCESS_KEY_ID" ]]; then
         echo "AWS cli present - using it to copy ecr-credential-provider binaries from s3."
-        aws s3 cp --region $BINARY_BUCKET_REGION $S3_PATH/$ECR_BINARY .
+        aws s3 cp --region "$BINARY_BUCKET_REGION" "$S3_PATH"/$ECR_BINARY .
     else
         echo "AWS cli missing - using wget to fetch ecr-credential-provider binaries from s3. Note: This won't work for private bucket."
         wget "$S3_URL_BASE/$ECR_BINARY"
@@ -382,7 +385,7 @@ if [[ $KUBERNETES_VERSION == "1.22"* ]]; then
     mv $ECR_BINARY /etc/eks/ecr-credential-provider
 
     # copying credential provider config file to eks folder
-    mv $TEMPLATE_DIR/ecr-credential-provider-config /etc/eks/ecr-credential-provider/ecr-credential-provider-config
+    mv "$TEMPLATE_DIR"/ecr-credential-provider-config /etc/eks/ecr-credential-provider/ecr-credential-provider-config
 fi
 
 
@@ -432,7 +435,7 @@ CLEANUP_IMAGE="${CLEANUP_IMAGE:-true}"
 if [[ "$CLEANUP_IMAGE" == "true" ]]; then
     # Clean up yum caches to reduce the image size
     sudo rm -rf \
-        $TEMPLATE_DIR
+        "$TEMPLATE_DIR"
 
     # Clean up files to reduce confusion during debug
     rm -rf \
@@ -456,3 +459,49 @@ if [[ "$CLEANUP_IMAGE" == "true" ]]; then
 fi
 
 touch /etc/machine-id
+
+################################################################################
+# GRAVEYARD
+################################################################################
+
+
+################################################################################
+### Hacked Packages ############################################################
+################################################################################
+
+# ec2-instance-connect.src
+
+# RPM_DEPENDENCIES=(
+#     ec2-instance-connect
+#     # https://github.com/aws/aws-ec2-instance-connect-config
+#     amazon-ssm-agent
+#     # https://github.com/aws/amazon-ssm-agent
+#     aws-cfn-bootstrap
+#     # https://gist.github.com/seventhskye/ab640169130f5d78d268
+#     device-mapper-persistent-data
+# )
+
+# for dependency in ${RPM_DEPENDENCIES[*]} ; do
+
+#     echo "Fetching $dependency from AL2 yum repos..."
+
+#     dnf --setopt=install_weak_deps=False \
+#         --assumeyes \
+#         --best \
+#         --downloadonly \
+#         --downloaddir=/tmp \
+#             install "$dependency"
+
+#     RPM_FILENAME=$(ls /tmp | grep "$dependency-")
+#     echo "yum provides $RPM_FILENAME"
+#     echo "installing..."
+
+#     rpm -ivh --nodeps /tmp/"$RPM_FILENAME"
+# done
+
+################################################################################
+### DNF/YUM Repos ##############################################################
+################################################################################
+
+# cp "$TEMPLATE_DIR"/dnf.conf /etc/dnf/dnf.conf
+# chown root:root /etc/dnf/dnf.conf
