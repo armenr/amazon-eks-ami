@@ -1,0 +1,12 @@
+#!/bin/bash
+set -e
+
+ec2-metadata -d > /opt/userdata.txt
+
+sed -n '/#!/,$p' /opt/userdata.txt > /opt/run.sh
+grep -v "/--" /opt/run.sh > /opt/tmp.file && mv /opt/tmp.file /opt/run.sh
+chmod +x /opt/run.sh
+cp /opt/run.sh /usr/bin/run-ec2-userdata
+
+# . /opt/run.sh
+#ucd -u /etc/cloud/cloud.cfg.d/bootstrap_gruv.cfg
