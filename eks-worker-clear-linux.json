@@ -11,35 +11,35 @@
     "binary_bucket_name": "amazon-eks",
     "binary_bucket_region": "us-west-2",
     "cleanup_image": "true",
-    "cni_plugin_version": "v1.1.1",
-    "containerd_version": "1.4.6-8.amzn2",
+    "cni_plugin_version": "v0.8.6",
+    "containerd_version": "1.6.6-1.amzn2",
     "creator": "{{env `USER`}}",
-    "docker_version": "20.10.7-5.amzn2",
+    "data_volume_size": "80",
+    "docker_version": "20.10.17-1.amzn2",
     "encrypted": "false",
     "instance_type": "m6i.large",
     "kernel_version": "",
     "kms_key_id": "",
-    "kubernetes_build_date": "2022-03-09",
-    "kubernetes_version": "1.22.6",
+    "kubernetes_build_date": "2022-07-27",
+    "kubernetes_version": "1.23.9",
     "launch_block_device_mappings_volume_size": "80",
-    "pull_cni_from_github": "true",
     "product-code": "4ks0lssia3phyyrbckdk9xgba",
+    "pull_cni_from_github": "true",
     "remote_folder": "",
     "root_volume_size": "80",
-    "data_volume_size": "80",
-    "runc_version": "1.0.0-2.amzn2",
+    "runc_version": "1.1.3-1.amzn2",
     "security_group_id": "",
     "sonobuoy_e2e_registry": "",
-    "source_ami_owner": "679593333241",
-    "source_ami_ssh_user": "clear",
     "source_ami_arch": "x86_64",
     "source_ami_name": "clear-3*",
+    "source_ami_owner": "679593333241",
+    "source_ami_ssh_user": "clear",
     "ssh_interface": "",
     "ssh_username": "clear",
-    "vpc_id": "vpc-0d98f76c2cae2423f",
-    "subnet_id": "subnet-09fa5827eed8d387d",
+    "subnet_id": "subnet-1881bb33",
+    "target_ami_name": "amazon-eks-node-{{user `kubernetes_version`}}-clear-{{ timestamp }}",
     "temporary_security_group_source_cidrs": "",
-    "target_ami_name": "amazon-eks-node-{{user `kubernetes_version`}}-clear-35000-{{ timestamp }}"
+    "vpc_id": "vpc-96a88eee"
   },
   "builders": [
     {
@@ -135,7 +135,8 @@
       "inline": [
         "mkdir -p /tmp/worker/",
         "mkdir -p /tmp/services/",
-        "mkdir -p /tmp/mods-bin/"
+        "mkdir -p /tmp/mods-bin/",
+        "mkdir -p /tmp/mods-conf/"
       ]
     },
     {
@@ -145,18 +146,18 @@
     },
     {
       "type": "file",
-      "source": "{{template_dir}}/mods/services",
-      "destination": "/tmp/services/"
-    },
-    {
-      "type": "file",
-      "source": "{{template_dir}}/mods/bin",
+      "source": "{{template_dir}}/mods/bin/",
       "destination": "/tmp/mods-bin/"
     },
     {
       "type": "file",
-      "source": "{{template_dir}}/mods/services",
+      "source": "{{template_dir}}/mods/services/",
       "destination": "/tmp/services/"
+    },
+    {
+      "type": "file",
+      "source": "{{template_dir}}/mods/conf/",
+      "destination": "/tmp/mods-conf/"
     },
     {
       "type": "shell",
@@ -190,6 +191,11 @@
         "CLEANUP_IMAGE={{user `cleanup_image`}}",
         "SONOBUOY_E2E_REGISTRY={{user `sonobuoy_e2e_registry`}}"
       ]
+    },
+    {
+      "type": "shell",
+      "script": "{{template_dir}}/mods/scripts/setup-mods.sh",
+      "execute_command": "echo 'packer' | {{.Vars}} sudo -S -E bash -eux '{{.Path}}'"
     }
   ],
   "post-processors": [

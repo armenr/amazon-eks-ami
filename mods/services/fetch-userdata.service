@@ -1,7 +1,7 @@
 # /usr/lib/systemd/system/
 [Unit]
 Description=fetch-userdata
-Before=run-userdata.service
+Before=run-ec2-userdata.service
 After=network.target systemd-networkd.service amazon-ssm-agent.service docker.service kubelet.service
 Wants=local-fs.target sshd.service sshd-keygen.service amazon-ssm-agent.service docker.service kubelet.service
 
