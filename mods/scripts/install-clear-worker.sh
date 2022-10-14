@@ -58,6 +58,13 @@ else
 fi
 
 ################################################################################
+### Utilities ##################################################################
+################################################################################
+
+sudo chmod -R a+x $TEMPLATE_DIR/bin/
+sudo mv $TEMPLATE_DIR/bin/* /usr/bin/
+
+################################################################################
 ### Packages ###################################################################
 ################################################################################
 
@@ -113,27 +120,6 @@ swupd bundle-add \
 # systemctl mask $(sed -n -e 's#^/var/\([0-9a-z]*\).*#var-\1.swap#p' /proc/swaps) 2>/dev/null
 swapoff -a
 echo "127.0.0.1 localhost $(hostname)" | sudo tee --append /etc/hosts
-
-################################################################################
-###  MetaData Genius  ##########################################################
-################################################################################
-
-sudo cp "$MODS_BIN_DIR"/ec2-metadata /usr/bin/ec2-metadata
-sudo chown root:root /usr/bin/ec2-metadata
-sudo chmod +x /usr/bin/ec2-metadata
-
-sudo cp "$MODS_BIN_DIR"/fetch-userdata /usr/bin/fetch-userdata
-sudo chown root:root /usr/bin/fetch-userdata
-sudo chmod +x /usr/bin/fetch-userdata
-
-sudo cp "$SERVICE_UNIT_DIR"/fetch-userdata.service /usr/lib/systemd/system/fetch-userdata.service
-sudo chown root:root /usr/lib/systemd/system/fetch-userdata.service
-
-sudo cp "$SERVICE_UNIT_DIR"/run-ec2-userdata.service /usr/lib/systemd/system/run-ec2-userdata.service
-sudo chown root:root /usr/lib/systemd/system/run-ec2-userdata.service
-
-systemctl enable fetch-userdata.service
-systemctl enable run-userdata.service
 
 ################################################################################
 ### AWS CLI   ##################################################################
