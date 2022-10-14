@@ -51,8 +51,8 @@ fi
 ### Utilities ##################################################################
 ################################################################################
 
-sudo chmod -R a+x $TEMPLATE_DIR/bin/
-sudo mv $TEMPLATE_DIR/bin/* /usr/bin/
+sudo chmod -R a+x "$TEMPLATE_DIR"/bin/
+sudo mv "$TEMPLATE_DIR"/bin/* /usr/bin/
 
 ################################################################################
 ### Packages ###################################################################
@@ -150,11 +150,20 @@ rtcsync
 EOF
 
 # If current clocksource is xen, switch to tsc
-if grep --quiet xen /sys/devices/system/clocksource/clocksource0/current_clocksource && grep --quiet tsc /sys/devices/system/clocksource/clocksource0/available_clocksource; then
+if grep --quiet xen /sys/devices/system/clocksource/clocksource0/current_clocksource &&
+  grep --quiet tsc /sys/devices/system/clocksource/clocksource0/available_clocksource; then
     echo "tsc" | sudo tee /sys/devices/system/clocksource/clocksource0/current_clocksource
 else
     echo "tsc as a clock source is not applicable, skipping."
 fi
+
+################################################################################
+### SSH ########################################################################
+################################################################################
+
+# Disable weak ciphers
+echo -e "\nCiphers aes128-ctr,aes256-ctr,aes128-gcm@openssh.com,aes256-gcm@openssh.com" | sudo tee -a /etc/ssh/sshd_config
+sudo systemctl restart sshd.service
 
 ################################################################################
 ### iptables ###################################################################
